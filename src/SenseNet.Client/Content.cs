@@ -309,9 +309,60 @@ namespace SenseNet.Client
             dynamic content = await Content.LoadAsync(oreq, server).ConfigureAwait(false);
 
             // we assume that this is an array of content json objects
-            var items = (JArray)content[fieldName];
+            var _itemToken = (JToken)content[fieldName];
+            var items = new JArray();
+
+            if (((JToken)_itemToken).Type == JTokenType.Array)
+            {
+                items = (JArray)_itemToken;
+            }
+            else if (((JToken)_itemToken).Type == JTokenType.Object)
+            {
+                items.Add((JObject)_itemToken);
+            }
 
             return items.Select(c => CreateFromResponse(c, server));
+        }
+
+        public static async Task<Content> LoadReferenceAsync(int id, string fieldName, string[] select = null, ServerContext server = null)
+        {
+            return await LoadReferenceAsync(null, id, fieldName, select, server);
+        }
+        public static async Task<Content> LoadReferenceAsync(string path, string fieldName, string[] select = null, ServerContext server = null)
+        {
+            return await LoadReferenceAsync(path, 0, fieldName, select, server);
+        }
+        private static async Task<Content> LoadReferenceAsync(string path, int id, string fieldName, string[] select = null, ServerContext server = null)
+        {
+            if (select == null || select.Length == 0)
+                select = new[] { "*" };
+            var projection = new[] { "Id", "Path", "Type" };
+            projection = projection.Union(select.Select(p => fieldName + "/" + p)).ToArray();
+
+            var oreq = new ODataRequest
+            {
+                SiteUrl = ServerContext.GetUrl(server),
+                Expand = new[] { fieldName },
+                Select = projection,
+                ContentId = id,
+                Path = path
+            };
+
+            dynamic content = await Content.LoadAsync(oreq, server);
+            
+            var _itemToken = (JToken)content[fieldName];
+            JObject item = null;
+
+            if (((JToken)_itemToken).Type == JTokenType.Array)
+            {
+                item = (JObject)_itemToken.FirstOrDefault();
+            }
+            else if (((JToken)_itemToken).Type == JTokenType.Object)
+            {
+                item = (JObject)_itemToken;
+            }
+
+            return CreateFromResponse((dynamic)item, server);
         }
 
         /// <summary>
