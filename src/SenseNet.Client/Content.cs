@@ -275,9 +275,9 @@ namespace SenseNet.Client
         /// <param name="fieldName">Reference field name.</param>
         /// <param name="select">Field names of the referenced content items to select.</param>
         /// <param name="server">Target server.</param>
-        public static async Task<IEnumerable<Content>> LoadReferencesAsync(int id, string fieldName, string[] select = null, ServerContext server = null)
+        public static Task<IEnumerable<Content>> LoadReferencesAsync(int id, string fieldName, string[] select = null, ServerContext server = null)
         {
-            return await LoadReferencesAsync(null, id, fieldName, select, server).ConfigureAwait(false);
+            return LoadReferencesAsync(null, id, fieldName, select, server);
         }
         /// <summary>
         /// Loads referenced content from a reference field.
@@ -286,9 +286,9 @@ namespace SenseNet.Client
         /// <param name="fieldName">Reference field name.</param>
         /// <param name="select">Field names of the referenced content items to select.</param>
         /// <param name="server">Target server.</param>
-        public static async Task<IEnumerable<Content>> LoadReferencesAsync(string path, string fieldName, string[] select = null, ServerContext server = null)
+        public static Task<IEnumerable<Content>> LoadReferencesAsync(string path, string fieldName, string[] select = null, ServerContext server = null)
         {
-            return await LoadReferencesAsync(path, 0, fieldName, select, server).ConfigureAwait(false);
+            return LoadReferencesAsync(path, 0, fieldName, select, server);
         }
         private static async Task<IEnumerable<Content>> LoadReferencesAsync(string path, int id, string fieldName, string[] select = null, ServerContext server = null)
         {
@@ -308,61 +308,42 @@ namespace SenseNet.Client
 
             dynamic content = await Content.LoadAsync(oreq, server).ConfigureAwait(false);
 
-            // we assume that this is an array of content json objects
-            var _itemToken = (JToken)content[fieldName];
-            var items = new JArray();
+            // we assume that this is an array of content json objects or a single object
+            var itemToken = (JToken)content[fieldName];
+            JArray items;
 
-            if (((JToken)_itemToken).Type == JTokenType.Array)
+            switch (itemToken.Type)
             {
-                items = (JArray)_itemToken;
-            }
-            else if (((JToken)_itemToken).Type == JTokenType.Object)
-            {
-                items.Add((JObject)_itemToken);
+                case JTokenType.Array:
+                    items = (JArray)itemToken;
+                    break;
+                case JTokenType.Object:
+                    items = new JArray
+                    {
+                        (JObject)itemToken
+                    };
+                    break;
+                default:
+                    throw new ClientException($"Unknown response type: {itemToken.Type}.");
             }
 
             return items.Select(c => CreateFromResponse(c, server));
         }
 
-        public static async Task<Content> LoadReferenceAsync(int id, string fieldName, string[] select = null, ServerContext server = null)
+        public static Task<Content> LoadReferenceAsync(int id, string fieldName, string[] select = null, ServerContext server = null)
         {
-            return await LoadReferenceAsync(null, id, fieldName, select, server);
+            return LoadReferenceAsync(null, id, fieldName, select, server);
         }
-        public static async Task<Content> LoadReferenceAsync(string path, string fieldName, string[] select = null, ServerContext server = null)
+        public static Task<Content> LoadReferenceAsync(string path, string fieldName, string[] select = null, ServerContext server = null)
         {
-            return await LoadReferenceAsync(path, 0, fieldName, select, server);
+            return LoadReferenceAsync(path, 0, fieldName, select, server);
         }
         private static async Task<Content> LoadReferenceAsync(string path, int id, string fieldName, string[] select = null, ServerContext server = null)
         {
-            if (select == null || select.Length == 0)
-                select = new[] { "*" };
-            var projection = new[] { "Id", "Path", "Type" };
-            projection = projection.Union(select.Select(p => fieldName + "/" + p)).ToArray();
-
-            var oreq = new ODataRequest
-            {
-                SiteUrl = ServerContext.GetUrl(server),
-                Expand = new[] { fieldName },
-                Select = projection,
-                ContentId = id,
-                Path = path
-            };
-
-            dynamic content = await Content.LoadAsync(oreq, server);
-            
-            var _itemToken = (JToken)content[fieldName];
-            JObject item = null;
-
-            if (((JToken)_itemToken).Type == JTokenType.Array)
-            {
-                item = (JObject)_itemToken.FirstOrDefault();
-            }
-            else if (((JToken)_itemToken).Type == JTokenType.Object)
-            {
-                item = (JObject)_itemToken;
-            }
-
-            return CreateFromResponse((dynamic)item, server);
+            //TODO: performance: send a request to the property directly with a TOP 1 restriction
+            // to prevent downloading the whole reference list.
+            var list = await LoadReferencesAsync(path, id, fieldName, select, server).ConfigureAwait(false);
+            return list.FirstOrDefault();
         }
 
         /// <summary>
